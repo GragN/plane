@@ -103,7 +103,7 @@ public sealed class AircraftMesh
 
     public void Draw(FlightModel f)
     {
-        Vector3 World(Vector3 v) => f.Position + f.ToWorld(v);
+        Vector3 World(Vector3 v) => f.BodyPointToWorld(v);
         foreach (var face in faces)
         {
             Vector3 a = World(face.A), b = World(face.B), c = World(face.C);
@@ -119,7 +119,7 @@ public sealed class AircraftMesh
             Vector3 pivot = new(side * 2.2f, .05f, -7.7f);
             for (int i = 0; i < stabilizer.Length; i++)
                 stabilizer[i] = World(pivot + Vector3.Transform(stabilizer[i] - pivot,
-                    Quaternion.CreateFromAxisAngle(Vector3.UnitX, (f.Elevator + f.PitchTrim) * .26f)));
+                    Quaternion.CreateFromAxisAngle(Vector3.UnitX, f.Elevator * .36f)));
             DrawFace(stabilizer[0], stabilizer[1], stabilizer[2], Wing);
             DrawFace(stabilizer[0], stabilizer[2], stabilizer[3], Wing);
             DrawLine3D(stabilizer[0], stabilizer[1], Dark);
@@ -136,7 +136,8 @@ public sealed class AircraftMesh
             if (f.GearExtension > .05f)
             {
                 Vector3 top = new(side * 2.4f, -.5f, -1.7f);
-                Vector3 wheel = new(side * 2.4f, -.5f - 1.25f * f.GearExtension, -1.7f);
+                Vector3 wheel = new(side * 2.4f, -.5f - 1.85f * f.GearExtension
+                    + f.GearCompression[side < 0 ? 1 : 2], -1.7f);
                 DrawCylinderEx(World(top), World(wheel), .08f, .08f, 7, Wing);
                 DrawCylinderEx(World(wheel - Vector3.UnitX * .16f), World(wheel + Vector3.UnitX * .16f),
                     .4f, .4f, 12, Dark);
@@ -145,7 +146,7 @@ public sealed class AircraftMesh
         DrawLine3D(World(new(0, 0, 11.1f)), World(new(0, 0, 12.1f)), Skin);
         if (f.GearExtension > .05f)
         {
-            Vector3 wheel = new(0, -.5f - 1.35f * f.GearExtension, 5.2f);
+            Vector3 wheel = new(0, -.5f - 1.95f * f.GearExtension + f.GearCompression[0], 5.2f);
             DrawCylinderEx(World(new(0, -.4f, 5.2f)), World(wheel), .065f, .065f, 8, Wing);
             DrawCylinderEx(World(wheel - Vector3.UnitX * .12f), World(wheel + Vector3.UnitX * .12f), .30f, .30f, 12, Dark);
         }

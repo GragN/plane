@@ -21,6 +21,12 @@ public sealed class WorldRenderer
         if (!cockpit) aircraft.Draw(f);
         if (vectors)
         {
+            foreach (SurfaceLoad load in f.SurfaceLoads)
+            {
+                Vector3 root = f.BodyPointToWorld(load.Position);
+                DrawLine3D(root, root + f.ToWorld(load.Force) / 9000,
+                    load.Separation > .2f ? new(201, 174, 136, 255) : new(191, 214, 219, 255));
+            }
             DrawLine3D(f.Position, f.Position + f.Up * f.Aero.Lift / 18000, new(221, 226, 219, 255));
             DrawLine3D(f.Position, f.Position + f.Forward * f.Thrust / 10000, new(128, 156, 169, 255));
             DrawLine3D(f.Position, f.Position + f.Velocity * .15f, new(188, 179, 148, 255));

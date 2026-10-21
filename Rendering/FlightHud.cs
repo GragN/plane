@@ -16,7 +16,7 @@ public sealed class FlightHud
     private readonly Font font = GetFontDefault();
     private float scale = 1;
 
-    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors)
+    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors, float opacity = .8f)
     {
         int width = GetScreenWidth(), height = GetScreenHeight();
         scale = Math.Clamp(Math.Min(width / 1440f, height / 900f), .65f, 1.75f);
@@ -27,13 +27,14 @@ public sealed class FlightHud
         Text("SU-27  /  FLIGHT LABORATORY", 43, 76, 12, Secondary);
         Rect(24, 24, 3, 86, Secondary);
         Text("01", 382, 38, 25, Ink);
-        Text(f.OnGround ? "AIRFIELD / RUNWAY 36" : "FREE FLIGHT / MOUNTAIN BASIN", 382, 72, 11, Secondary);
+        Text(f.ParkingBrake ? "PARK BRAKE / PRESS K TO RELEASE" :
+            f.OnGround ? "AIRFIELD / RUNWAY 36" : "FREE FLIGHT / MOUNTAIN BASIN", 382, 72, 11, Secondary);
 
         Box(w - 259, 24, 235, 86);
         Text(paused ? "PAUSED" : f.Crashed ? "FLIGHT ENDED" : "SIMULATION LIVE", w - 240, 39, 14,
             paused || f.Crashed ? Caution : Ink);
         Text($"{view.Name}  /  {(f.WindEnabled ? "WIND 5 M/S" : "ISA + CALM")}", w - 240, 67, 11, Secondary);
-        Text($"120 HZ PHYSICS   {GetFPS(),3} FPS", w - 240, 87, 10, Secondary);
+        Text($"240 HZ  {GetFPS(),3} FPS  OPACITY {opacity * 100:0}%", w - 240, 87, 10, Secondary);
 
         DrawHeading(f, w);
         if (view.Mode == 1) DrawAttitude(f, w, h);
@@ -70,8 +71,16 @@ public sealed class FlightHud
         Text($"FUEL {f.Fuel,5:0} KG", w - 290, panelY + 96, 12, Ink);
         Text($"GEAR {(f.GearExtension > .99f ? "DOWN" : f.GearExtension < .01f ? "UP" : "TRANSIT")}", w - 160, panelY + 96, 11, Secondary);
         Text($"TRIM {f.PitchTrim * 100:+0.0;-0.0;0.0}%", w - 290, panelY + 126, 11, Secondary);
-        Text(f.Airbrake ? "AIRBRAKE OUT" : $"RADALT {f.AltitudeAgl:0} M", w - 160, panelY + 126, 11,
-            f.Airbrake ? Caution : Secondary);
+        Text(f.ParkingBrake ? "PARK BRAKE" : f.Airbrake ? "AIRBRAKE OUT" : $"RADALT {f.AltitudeAgl:0} M", w - 160, panelY + 126, 11,
+            f.ParkingBrake || f.Airbrake ? Caution : Secondary);
+        if (vectors)
+        {
+            Box(24, 125, 284, 112);
+            Text($"BETA {f.Aero.Beta * 180 / MathF.PI:+0.0;-0.0;0.0} DEG", 42, 142, 12, Ink);
+            Text($"SEPARATION L {f.Aero.LeftSeparation:P0} / R {f.Aero.RightSeparation:P0}", 42, 166, 11, Secondary);
+            Text($"ENG L {f.LeftThrust / 1000:0.0} / R {f.RightThrust / 1000:0.0} KN", 42, 190, 11, Secondary);
+            Text($"STRUCTURAL DAMAGE {f.StructuralDamage:P0}", 42, 214, 11, Secondary);
+        }
 
         // Control position: the crosshair shows actual actuators, not just key presses.
         float cx = w / 2, cy = h - 132;
@@ -85,7 +94,8 @@ public sealed class FlightHud
 
         string? warning = f.Crashed ? f.Failure : f.Aero.Separation > .15f ? "STALL / REDUCE ANGLE OF ATTACK" :
             f.LoadFactor > 8.5f ? "HIGH G / UNLOAD" :
-            f.AltitudeAgl < 140 && f.Velocity.Y < -8 ? "TERRAIN / PULL UP" : f.Fuel < 500 ? "LOW FUEL" : null;
+            f.AltitudeAgl < 140 && f.Velocity.Y < -8 ? "TERRAIN / PULL UP" :
+            !f.LeftEngineEnabled || !f.RightEngineEnabled ? "ENGINE OUT / APPLY RUDDER" : f.Fuel < 500 ? "LOW FUEL" : null;
         if (warning is not null)
         {
             float tw = Measure(warning, 14);
@@ -181,17 +191,19 @@ public sealed class FlightHud
             "LEFT SHIFT         Toggle afterburner (full throttle)",
             "Q / E              Nose-down / nose-up pitch trim",
             "G / B              Landing gear / airbrake",
-            "SPACE              Hold wheel brakes",
+            "SPACE / K          Wheel brakes / parking brake",
             "V                  Chase / cockpit / orbit camera",
             "RMB + MOUSE        Rotate orbit camera",
             "MOUSE WHEEL        Camera distance",
             "N / TAB            Wind + gusts / force vectors",
             "P / H              Pause / close this panel",
-            "R / T              Restart on runway"
+            "R / T              Restart on runway",
+            "F1 / F2            Left / right engine cut + relight",
+            "F8 / F9            Decrease / increase window opacity"
         ];
-        for (int i = 0; i < controls.Length; i++) Text(controls[i], x + 26, y + 96 + i * 23, 11, Ink);
-        Text("TAKEOFF: full power + A/B, rotate gently near 260 km/h.", x + 26, y + 433, 11, Secondary);
-        Text("Gear up after lift-off. Approach: 280-310 km/h, gear down.", x + 26, y + 455, 11, Secondary);
+        for (int i = 0; i < controls.Length; i++) Text(controls[i], x + 26, y + 90 + i * 20, 11, Ink);
+        Text("TAKEOFF: release K, full power + A/B, rotate near 300 km/h.", x + 26, y + 433, 11, Secondary);
+        Text("Direct controls: use small inputs. No G / alpha limiter.", x + 26, y + 455, 11, Secondary);
     }
 
     private void Tape(float x, float y, float value, int step, string label, string unit, bool right)

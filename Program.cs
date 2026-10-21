@@ -1,5 +1,6 @@
 using Flanker;
 using Flanker.Simulation;
+using Flanker.Rendering;
 
 if (args.Contains("--self-test"))
     return PhysicsTests.Run();
@@ -10,13 +11,15 @@ if (args.Contains("--help"))
     Console.WriteLine("dotnet run                  Start the simulator");
     Console.WriteLine("dotnet run -- --self-test    Run deterministic physics tests (no display)");
     Console.WriteLine("dotnet run -- --smoke-test   Validate 420 frames: runway start, airborne, cockpit; save artifacts/*.png");
+    Console.WriteLine("dotnet run -- --opacity 0.8  Window opacity (0.2..1.0); default: 20% transparent");
     return 0;
 }
 
 try
 {
-    return new SimulatorApp().Run(args.Contains("--smoke-test"));
+    return new SimulatorApp().Run(args.Contains("--smoke-test"), WindowAppearance.FromArguments(args));
 }
+catch (ArgumentException ex) { Console.Error.WriteLine(ex.Message); return 2; }
 catch (DllNotFoundException ex)
 {
     Console.Error.WriteLine($"Native graphics dependency missing: {ex.Message}");

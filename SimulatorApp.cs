@@ -9,7 +9,7 @@ namespace Flanker;
 
 public sealed class SimulatorApp
 {
-    public int Run(bool smokeTest)
+    public int Run(bool smokeTest, float opacity = .8f)
     {
         CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))
@@ -21,6 +21,7 @@ public sealed class SimulatorApp
         SetConfigFlags(ConfigFlags.Msaa4xHint | ConfigFlags.ResizableWindow | ConfigFlags.VSyncHint);
         InitWindow(1440, 900, "FLANKER | Su-27 Flight Laboratory");
         if (!IsWindowReady()) return 1;
+        var appearance = new WindowAppearance(opacity);
         SetWindowMinSize(960, 640);
         SetTargetFPS(smokeTest ? 0 : 120);
         Rlgl.SetClipPlanes(.15, 60000);
@@ -37,6 +38,7 @@ public sealed class SimulatorApp
             while (!WindowShouldClose())
             {
                 float elapsed = smokeTest ? 1f / 60 : Math.Clamp(GetFrameTime(), 0, .1f);
+                appearance.Update();
                 if (IsKeyPressed(KeyboardKey.P)) { paused = !paused; accumulator = 0; }
                 if (IsKeyPressed(KeyboardKey.H)) help = !help;
                 if (IsKeyPressed(KeyboardKey.Tab)) vectors = !vectors;
@@ -58,7 +60,7 @@ public sealed class SimulatorApp
                 DrawRectangleGradientV(0, 0, GetScreenWidth(), GetScreenHeight(),
                     new(116, 135, 146, 255), new(213, 218, 217, 255));
                 world.Draw(flight, view.Camera, view.Mode == 1, vectors);
-                hud.Draw(flight, view, paused, help, vectors);
+                hud.Draw(flight, view, paused, help, vectors, appearance.Opacity);
                 EndDrawing();
                 frames++;
                 if (smokeTest && frames is 180 or 300 or 420)
@@ -112,6 +114,9 @@ public sealed class SimulatorApp
         f.WheelBrake = IsKeyDown(KeyboardKey.Space);
         if (IsKeyPressed(KeyboardKey.G)) f.GearDown = !f.GearDown;
         if (IsKeyPressed(KeyboardKey.B)) f.Airbrake = !f.Airbrake;
+        if (IsKeyPressed(KeyboardKey.K)) f.ParkingBrake = !f.ParkingBrake;
+        if (IsKeyPressed(KeyboardKey.F1)) f.LeftEngineEnabled = !f.LeftEngineEnabled;
+        if (IsKeyPressed(KeyboardKey.F2)) f.RightEngineEnabled = !f.RightEngineEnabled;
         if (IsKeyPressed(KeyboardKey.LeftShift)) f.Afterburner = !f.Afterburner;
 
         if (IsGamepadAvailable(0))
