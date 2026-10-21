@@ -9,7 +9,8 @@ public readonly record struct SurfaceLoad(Vector3 Position, Vector3 Force, float
 public readonly record struct AeroContext(Vector3 Velocity, Vector3 Omega, Air Air,
     float Elevator = 0, float Roll = 0, float Rudder = 0, float Gear = 0, float Airbrake = 0,
     float GroundClearance = 1000, Vector3 CenterOfMass = default,
-    Quaternion Orientation = default, Vector3 Position = default, bool WindEnabled = false, double Time = 0);
+    Quaternion Orientation = default, Vector3 Position = default, bool WindEnabled = false, double Time = 0,
+    float DifferentialTail = 0);
 
 public sealed class Aerodynamics
 {
@@ -26,23 +27,30 @@ public sealed class Aerodynamics
     public IReadOnlyList<SurfaceLoad> Loads => loads;
     private float wingCl;
     private const float WingAspect = AircraftParameters.Span * AircraftParameters.Span / AircraftParameters.WingArea;
+    private static readonly (float Z, float SideWeight, float NormalWeight)[] BodySections =
+    [(-7.5f, 4.9f, 9.8f), (-3.8f, 6.4f, 16), (0, 6.8f, 12.8f), (4, 5.2f, 6.4f), (8.5f, 3, 3.2f)];
 
     public Aerodynamics()
     {
         var parts = new List<Panel>();
         foreach (int side in new[] { -1, 1 })
         {
-            const int strips = 8;
+            const int strips = 7;
             for (int i = 0; i < strips; i++)
             {
                 float u = (i + .5f) / strips;
                 float x = .65f + (AircraftParameters.Span / 2 - .65f) * u;
                 float weight = (1 - .6f * u) / (strips * .7f);
                 Vector3 span = Vector3.Normalize(new Vector3(1, -side * .035f, 0));
-                parts.Add(new(new(side * x, 0, .95f - .32f * x), span,
-                    AircraftParameters.WingArea * .5f * weight, 6.2f - 4 * u,
+                // Swept outer-wing quarter chords stay inside the visual planform.
+                parts.Add(new(new(side * x, 0, .6f - .63f * x), span,
+                    (AircraftParameters.WingArea - 14) * .5f * weight, 6.2f - 4 * u,
                     Kind.Wing, side, (AircraftParameters.StallAlpha + .036f - .075f * u), u > .55f ? -.22f * side : 0));
             }
+            // Account for the forward root extensions at their own locations rather
+            // than shifting every outer-wing force ahead of its leading edge.
+            parts.Add(new(new(side * .95f, .2f, 3.2f), Vector3.UnitX,
+                7, 4.5f, Kind.Wing, side, .49f, 0));
             for (int i = 0; i < 3; i++)
                 parts.Add(new(new(side * (1.9f + .8f * i), .08f, -6.8f - i * .35f), Vector3.UnitX,
                     12.4f / 6, 2.6f - .3f * i, Kind.Tail, side, .31f, -.36f));
@@ -128,7 +136,8 @@ public sealed class Aerodynamics
         float beta = speed > .01f ? MathF.Asin(Math.Clamp(v.X / speed, -1, 1)) : 0;
         float alpha = p.Kind == Kind.Fin ? MathF.Atan2(v.X, v.Z) + p.Control * c.Rudder :
             MathF.Atan2(-Vector3.Dot(v, Vector3.Cross(Vector3.UnitZ, p.Span)), v.Z)
-                + p.Control * (p.Kind == Kind.Tail ? c.Elevator : c.Roll);
+                + p.Control * (p.Kind == Kind.Tail
+                    ? Math.Clamp(c.Elevator + p.Side * c.DifferentialTail, -1, 1) : c.Roll);
         return (v, MathF.IEEERemainder(alpha, MathF.Tau), beta);
     }
 
@@ -190,11 +199,24 @@ public sealed class Aerodynamics
         float qArea = .5f * c.Air.Density * airspeed * airspeed * AircraftParameters.WingArea;
         Vector3 bodyForce = -flowDirection * qArea *
             (.008f + .6f * AerodynamicTables.WaveDrag(bodyMach) + .055f * c.Gear + .095f * c.Airbrake);
-        // Crossflow pressure on the fuselage; it dissipates sideslip/normal motion.
-        bodyForce.X -= .5f * c.Air.Density * 32 * c.Velocity.X * MathF.Abs(c.Velocity.X);
-        bodyForce.Y -= .5f * c.Air.Density * 24 * c.Velocity.Y * MathF.Abs(c.Velocity.Y);
         total += bodyForce;
-        moment += Vector3.Cross(new Vector3(0, 0, 1.6f) - c.CenterOfMass, bodyForce);
+        moment += Vector3.Cross(new Vector3(0, 0, -1.5f) - c.CenterOfMass, bodyForce);
+        // Crossflow pressure is distributed along the hull. A single force at the nose
+        // caused excessive pitch-up after stall and missed rotational damping.
+        foreach (var section in BodySections)
+        {
+            Vector3 arm = new Vector3(0, -.05f, section.Z) - c.CenterOfMass;
+            Vector3 v = c.Velocity + Vector3.Cross(c.Omega, arm);
+            if (c.WindEnabled)
+                v += Vector3.Transform(Atmosphere.WindAt(c.Time, c.Position, true)
+                    - Atmosphere.WindAt(c.Time, c.Position + Vector3.Transform(arm, c.Orientation), true),
+                    Quaternion.Conjugate(c.Orientation));
+            Vector3 force = -.5f * c.Air.Density * new Vector3(
+                32 * section.SideWeight / 26.3f * v.X * MathF.Abs(v.X),
+                24 * section.NormalWeight / 48.2f * v.Y * MathF.Abs(v.Y), 0);
+            total += force;
+            moment += Vector3.Cross(arm, force);
+        }
         Vector3 liftDirection = Vector3.Cross(flowDirection, Vector3.UnitX);
         if (liftDirection.LengthSquared() > 1e-8f) liftDirection = Vector3.Normalize(liftDirection);
         // Direction-of-flow instruments are not meaningful while standing still.

@@ -30,7 +30,7 @@ public sealed class FlightCamera
         Vector3 pos, target, up;
         if (Mode == 1)
         {
-            pos = f.Position + f.ToWorld(new(0, 1.28f, 5.2f));
+            pos = f.BodyPointToWorld(new(0, 1.28f, 5.2f));
             target = pos + f.Forward * 400;
             up = f.Up;
         }

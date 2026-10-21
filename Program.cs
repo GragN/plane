@@ -4,12 +4,15 @@ using Flanker.Rendering;
 
 if (args.Contains("--self-test"))
     return PhysicsTests.Run();
+if (args.Contains("--flight-report"))
+    return FlightValidation.Run();
 
 if (args.Contains("--help"))
 {
     Console.WriteLine("Flanker | Su-27 research flight simulator");
     Console.WriteLine("dotnet run                  Start the simulator");
     Console.WriteLine("dotnet run -- --self-test    Run deterministic physics tests (no display)");
+    Console.WriteLine("dotnet run -- --flight-report Run handling/energy/recovery trials; export CSV and JSON");
     Console.WriteLine("dotnet run -- --smoke-test   Validate 420 frames: runway start, airborne, cockpit; save artifacts/*.png");
     Console.WriteLine("dotnet run -- --opacity 0.8  Window opacity (0.2..1.0); default: 20% transparent");
     return 0;

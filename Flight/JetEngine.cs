@@ -8,11 +8,13 @@ public sealed class JetEngine
     public float Thrust { get; private set; }
     public float FuelFlow { get; private set; }
 
-    public void Reset(float throttle)
+    public void Reset(float throttle, Air? air = null, float mach = 0)
     {
         Enabled = true;
         Rpm = .55f + .45f * throttle;
-        Reheat = Thrust = FuelFlow = 0;
+        Reheat = 0;
+        Thrust = DryThrust(air ?? Atmosphere.At(0), mach, throttle);
+        FuelFlow = .08f + Thrust * .000022f;
     }
 
     public static float DryThrust(Air air, float mach, float throttle)

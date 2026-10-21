@@ -9,14 +9,23 @@ public sealed class FlightModel
     private readonly Aerodynamics airframe = new();
     private readonly LandingGear gear = new();
     private readonly JetEngine leftEngine = new(), rightEngine = new();
-    private float stickPitch, stickRoll, pedal;
+    public FlightControls Controls { get; } = new();
+    private float cachedFuel = float.NaN;
+    private MassProperties cachedMass;
     public Vector3 Position { get; set; }
     public Vector3 Velocity { get; set; }
     public Quaternion Orientation { get; set; } = Quaternion.Identity;
     public Vector3 AngularVelocity { get; set; }
     public float Fuel { get; set; }
-    public MassProperties MassDistribution => MassProperties.FromFuel(Fuel);
-    public float Mass => AircraftParameters.EmptyMass + Fuel;
+    public MassProperties MassDistribution
+    {
+        get
+        {
+            if (cachedFuel != Fuel) { cachedMass = MassProperties.FromFuel(Fuel); cachedFuel = Fuel; }
+            return cachedMass;
+        }
+    }
+    public float Mass => MassDistribution.Mass;
     public float Throttle { get; set; }
     public float EngineSpool => (leftEngine.Rpm + rightEngine.Rpm) / 2;
     public float LeftThrust => leftEngine.Thrust;
@@ -35,6 +44,7 @@ public sealed class FlightModel
     public float RollInput { get; set; }
     public float RudderInput { get; set; }
     public float Elevator { get; private set; }
+    public float DifferentialTail { get; private set; }
     public float Aileron { get; private set; }
     public float Rudder { get; private set; }
     public float Thrust => LeftThrust + RightThrust;
@@ -56,36 +66,58 @@ public sealed class FlightModel
     public float Pitch => MathF.Asin(Math.Clamp(Forward.Y, -1, 1));
     public float Bank => MathF.Atan2(-Right.Y, Up.Y);
 
-    public FlightModel(bool ground = false) => Reset(ground);
+    public FlightModel(bool ground = false, ControlLaw controlLaw = ControlLaw.Normal)
+    {
+        Controls.Law = controlLaw;
+        Reset(ground);
+    }
     public Vector3 ToWorld(Vector3 v) => Vector3.Transform(v, Orientation);
     public Vector3 ToLocal(Vector3 v) => Vector3.Transform(v, Quaternion.Conjugate(Orientation));
     public Vector3 BodyPointToWorld(Vector3 point) => Position + ToWorld(point - MassDistribution.Center);
 
-    public void Reset(bool ground)
+    public void Reset(bool ground) => Initialize(ground, 175, 1100, AircraftParameters.InitialFuel);
+
+    public void ResetAirborne(float speed, float altitude, float fuel = AircraftParameters.InitialFuel)
     {
-        Fuel = AircraftParameters.InitialFuel;
+        if (speed <= 0 || altitude < 50 || fuel < 0 || fuel > AircraftParameters.InitialFuel)
+            throw new ArgumentOutOfRangeException(nameof(speed), "Invalid airborne trim conditions");
+        Initialize(false, speed, altitude, fuel);
+    }
+
+    private void Initialize(bool ground, float speed, float altitude, float fuel)
+    {
+        Fuel = fuel;
         AngularVelocity = Vector3.Zero;
         Time = 0;
         Crashed = false; Failure = ""; StructuralDamage = 0;
         OnGround = ground;
-        ElevatorInput = RollInput = RudderInput = Elevator = Aileron = Rudder = 0;
-        stickPitch = stickRoll = pedal = 0;
+        ElevatorInput = RollInput = RudderInput = Elevator = Aileron = Rudder = DifferentialTail = 0;
         Airbrake = WheelBrake = Afterburner = false;
         ParkingBrake = ground;
         GearDown = ground;
         GearExtension = ground ? 1 : 0;
-        Position = ground ? new(0, 2.75f, -1050) : new(0, 1100, -1200);
-        Velocity = ground ? Vector3.Zero : new(0, 0, 175);
+        Position = ground ? new(0, 2.75f, -1050) : new(0, altitude, -1200);
+        Velocity = ground ? Vector3.Zero : new(0, 0, speed);
         Orientation = Quaternion.Identity;
         PitchTrim = Throttle = 0;
         if (!ground)
         {
-            TrimSolution trim = TrimSolver.Solve(175, Position.Y, MassDistribution);
+            TrimSolution trim = TrimSolver.Solve(speed, Position.Y, MassDistribution);
             Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -trim.Alpha);
             Elevator = PitchTrim = trim.Elevator;
             Throttle = trim.Throttle;
         }
-        leftEngine.Reset(Throttle); rightEngine.Reset(Throttle); gear.Reset();
+        Air initialAir = Atmosphere.At(Position.Y);
+        leftEngine.Reset(Throttle, initialAir, Velocity.Length() / initialAir.SoundSpeed);
+        rightEngine.Reset(Throttle, initialAir, Velocity.Length() / initialAir.SoundSpeed);
+        gear.Reset();
+        if (ground)
+        {
+            var pose = LandingGear.ParkedPose(MassDistribution, Thrust);
+            Position = new(0, pose.Height, -1050);
+            Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -pose.Pitch);
+        }
+        Controls.Reset(ground, PitchTrim);
         var context = Context(Position, Velocity, Orientation, AngularVelocity, MassDistribution);
         airframe.ResetFlow(context);
         Aero = airframe.Evaluate(context);
@@ -98,7 +130,8 @@ public sealed class FlightModel
         Vector3 relative = velocity - Atmosphere.WindAt(Time, position, WindEnabled);
         return new(Vector3.Transform(relative, Quaternion.Conjugate(orientation)), omega, air,
             Elevator, Aileron, Rudder, GearExtension, Airbrake ? 1 : 0,
-            position.Y - Terrain.Height(position.X, position.Z), mass.Center, orientation, position, WindEnabled, Time);
+            position.Y - Terrain.Height(position.X, position.Z), mass.Center, orientation, position, WindEnabled, Time,
+            DifferentialTail);
     }
 
     private readonly record struct Dynamics(Vector3 Force, Vector3 Moment, AeroResult Aero, ContactResult Contact);
@@ -111,7 +144,7 @@ public sealed class FlightModel
         for (int i = 0; i < 2; i++)
         {
             JetEngine engine = i == 0 ? leftEngine : rightEngine;
-            float drag = engine.Enabled ? 0 : .5f * context.Air.Density * context.Velocity.Z * MathF.Abs(context.Velocity.Z) * .09f;
+            float drag = engine.Enabled && Fuel > 0 ? 0 : .5f * context.Air.Density * context.Velocity.Z * MathF.Abs(context.Velocity.Z) * .09f;
             Vector3 f = new(0, 0, engine.Thrust - drag);
             bodyForce += f;
             moment += Vector3.Cross(new Vector3(i == 0 ? -1.23f : 1.23f, -.43f, -5) - mass.Center, f);
@@ -130,15 +163,17 @@ public sealed class FlightModel
         Time += dt;
         Throttle = Math.Clamp(Throttle, 0, 1);
         PitchTrim = Math.Clamp(PitchTrim, -.25f, .25f);
-        stickPitch = Move(stickPitch, Math.Clamp(ElevatorInput, -1, 1), dt * 1.8f);
-        stickRoll = Move(stickRoll, Math.Clamp(RollInput, -1, 1), dt * 2.2f);
-        pedal = Move(pedal, Math.Clamp(RudderInput, -1, 1), dt * 2);
         Air air = Atmosphere.At(Position.Y);
-        float q = .5f * air.Density * Velocity.LengthSquared();
-        float hydraulicAuthority = 1 / MathF.Sqrt(1 + q / 120000);
-        Elevator = Move(Elevator, Math.Clamp(stickPitch * hydraulicAuthority + PitchTrim, -1, 1), dt * 1.6f);
-        Aileron = Move(Aileron, stickRoll * hydraulicAuthority, dt * 2.5f);
-        Rudder = Move(Rudder, pedal * hydraulicAuthority, dt * 1.8f);
+        Vector3 measuredMoment = Aero.Moment;
+        measuredMoment += Vector3.Cross(new Vector3(-1.23f, -.43f, -5) - MassDistribution.Center, new Vector3(0, 0, LeftThrust));
+        measuredMoment += Vector3.Cross(new Vector3(1.23f, -.43f, -5) - MassDistribution.Center, new Vector3(0, 0, RightThrust));
+        SurfaceCommands command = Controls.Step(dt, this, air, MassDistribution, measuredMoment, Elevator, Aileron, Rudder, DifferentialTail);
+        float leftTail = Move(Elevator - DifferentialTail, Math.Clamp(command.Elevator - command.DifferentialTail, -1, 1), dt * 1.6f);
+        float rightTail = Move(Elevator + DifferentialTail, Math.Clamp(command.Elevator + command.DifferentialTail, -1, 1), dt * 1.6f);
+        Elevator = (leftTail + rightTail) / 2;
+        DifferentialTail = (rightTail - leftTail) / 2;
+        Aileron = Move(Aileron, command.Aileron, dt * 2.5f);
+        Rudder = Move(Rudder, command.Rudder, dt * 1.8f);
         GearExtension = Move(GearExtension, GearDown ? 1 : 0, dt / 3.5f);
         MassProperties mass = MassDistribution;
         AeroContext c = Context(Position, Velocity, Orientation, AngularVelocity, mass);

@@ -11,3 +11,4 @@ jobs:
       - run: dotnet restore --locked-mode
       - run: dotnet build -c Release --no-restore
       - run: dotnet run -c Release --no-build -- --self-test
+      - run: dotnet run -c Release --no-build -- --flight-report

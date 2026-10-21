@@ -1,0 +1,46 @@
+{
+  "Commit": "1191f23181c3457a3a9523f5cb1c9d14c93002a9",
+  "Conditions": {
+    "TAS_m_s": 175,
+    "Altitude_m": 1100,
+    "InitialFuel_kg": 5000,
+    "PitchHold_s": 2,
+    "RollHold_s": 1
+  },
+  "Mode": "old direct control",
+  "Results": [
+    {
+      "name": "half_pitch",
+      "peakPitchRate": 50.366356,
+      "peakRollRate": 1.2934135e-05,
+      "peakG": 8.422253,
+      "pitchAtHalf": 13.718342,
+      "bank": -3.8977404e-08,
+      "speed": 155.25108,
+      "alpha": 14.3670635,
+      "crashed": false
+    },
+    {
+      "name": "full_pitch",
+      "peakPitchRate": 84.11877,
+      "peakRollRate": 1.1391605e-05,
+      "peakG": 10.134629,
+      "pitchAtHalf": 14.953335,
+      "bank": 2.3076542e-07,
+      "speed": 145.34496,
+      "alpha": 17.180725,
+      "crashed": false
+    },
+    {
+      "name": "half_roll",
+      "peakPitchRate": 4.831122,
+      "peakRollRate": 129.19142,
+      "peakG": 1.0014158,
+      "pitchAtHalf": 0.9599868,
+      "bank": 108.091995,
+      "speed": 174.93565,
+      "alpha": 0.9842972,
+      "crashed": false
+    }
+  ]
+}

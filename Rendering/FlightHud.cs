@@ -33,7 +33,7 @@ public sealed class FlightHud
         Box(w - 259, 24, 235, 86);
         Text(paused ? "PAUSED" : f.Crashed ? "FLIGHT ENDED" : "SIMULATION LIVE", w - 240, 39, 14,
             paused || f.Crashed ? Caution : Ink);
-        Text($"{view.Name}  /  {(f.WindEnabled ? "WIND 5 M/S" : "ISA + CALM")}", w - 240, 67, 11, Secondary);
+        Text($"{view.Name} / {f.Controls.Law.ToString().ToUpperInvariant()} / {(f.WindEnabled ? "WIND" : "CALM")}", w - 240, 67, 10, Secondary);
         Text($"240 HZ  {GetFPS(),3} FPS  OPACITY {opacity * 100:0}%", w - 240, 87, 10, Secondary);
 
         DrawHeading(f, w);
@@ -75,18 +75,23 @@ public sealed class FlightHud
             f.ParkingBrake || f.Airbrake ? Caution : Secondary);
         if (vectors)
         {
-            Box(24, 125, 284, 112);
+            Box(24, 125, 284, 182);
             Text($"BETA {f.Aero.Beta * 180 / MathF.PI:+0.0;-0.0;0.0} DEG", 42, 142, 12, Ink);
             Text($"SEPARATION L {f.Aero.LeftSeparation:P0} / R {f.Aero.RightSeparation:P0}", 42, 166, 11, Secondary);
             Text($"ENG L {f.LeftThrust / 1000:0.0} / R {f.RightThrust / 1000:0.0} KN", 42, 190, 11, Secondary);
             Text($"STRUCTURAL DAMAGE {f.StructuralDamage:P0}", 42, 214, 11, Secondary);
+            Text($"G CMD {f.Controls.CommandedG:0.0} / {(f.Controls.AlphaLimited ? "ALPHA LIMIT" : "TRACKING")}", 42, 238, 11, Secondary);
+            Text($"ROLL CMD {f.Controls.CommandedRollRate * 180 / MathF.PI:+0;-0;0} DEG/S", 42, 262, 11, Secondary);
+            Text($"TAIL L/R {(f.Elevator - f.DifferentialTail) * 20.63f:+0.0;-0.0;0.0} / {(f.Elevator + f.DifferentialTail) * 20.63f:+0.0;-0.0;0.0} DEG", 42, 286, 11, Secondary);
         }
 
         // Control position: the crosshair shows actual actuators, not just key presses.
         float cx = w / 2, cy = h - 132;
         Stroke(cx - 28, cy, cx + 28, cy, Line); Stroke(cx, cy - 28, cx, cy + 28, Line);
         Circle(cx + f.Aileron * 25, cy - f.Elevator * 25, 3, Ink);
-        Text("CONTROL INPUT", cx - 45, cy + 39, 9, Secondary);
+        DrawCircleLines((int)((cx + f.Controls.StickRoll * 25) * scale),
+            (int)((cy - f.Controls.StickPitch * 25) * scale), 5 * scale, Secondary);
+        Text("STICK / SURFACE", cx - 45, cy + 39, 9, Secondary);
 
         Box(24, h - 56, w - 48, 32);
         Text("ARROWS  PITCH / ROLL     A D  RUDDER     W S  THROTTLE     V  CAMERA     H  CONTROLS", 41, h - 44, 11, Ink);
@@ -182,7 +187,7 @@ public sealed class FlightHud
         float x = w / 2 - 272, y = h / 2 - 241;
         Box(x, y, 544, 482);
         Text("FLIGHT CONTROLS", x + 26, y + 23, 23, Ink);
-        Text("DIRECT AXIS CONTROL / NO AUTOPILOT", x + 26, y + 60, 11, Secondary);
+        Text("NORMAL: G / RATE COMMAND  |  DIRECT: SURFACES", x + 26, y + 60, 11, Secondary);
         string[] controls = [
             "UP / DOWN          Push nose down / pull nose up",
             "LEFT / RIGHT       Roll left / right",
@@ -199,11 +204,12 @@ public sealed class FlightHud
             "P / H              Pause / close this panel",
             "R / T              Restart on runway",
             "F1 / F2            Left / right engine cut + relight",
+            "F4 / CTRL          Normal / direct law; fine inputs",
             "F8 / F9            Decrease / increase window opacity"
         ];
         for (int i = 0; i < controls.Length; i++) Text(controls[i], x + 26, y + 90 + i * 20, 11, Ink);
         Text("TAKEOFF: release K, full power + A/B, rotate near 300 km/h.", x + 26, y + 433, 11, Secondary);
-        Text("Direct controls: use small inputs. No G / alpha limiter.", x + 26, y + 455, 11, Secondary);
+        Text("NORMAL: g / alpha protection. DIRECT: no protections.", x + 26, y + 455, 11, Secondary);
     }
 
     private void Tape(float x, float y, float value, int step, string label, string unit, bool right)

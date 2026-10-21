@@ -75,46 +75,46 @@ public static class PhysicsTests
         });
         Test("Trimmed level flight remains near equilibrium for 60 s", () =>
         {
-            var f = new FlightModel(); Advance(f, 60);
+            var f = new FlightModel(controlLaw: ControlLaw.Normal); Advance(f, 60);
             Check(!f.Crashed, f.Failure);
             Check(MathF.Abs(f.Position.Y - 1100) < 100, $"altitude {f.Position.Y:0.0} m");
             Check(MathF.Abs(f.Aero.Speed - 175) < 15, $"speed {f.Aero.Speed:0.0} m/s");
         });
         Test("Elevator produces nose-up angular acceleration", () =>
         {
-            var f = new FlightModel { ElevatorInput = .5f }; Advance(f, .5f);
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { ElevatorInput = .5f }; Advance(f, .5f);
             Check(f.AngularVelocity.X < -.05f && f.Pitch > .04f, $"pitch rate {f.AngularVelocity.X}");
         });
         Test("Ailerons roll right and rudder yaws right", () =>
         {
-            var roll = new FlightModel { RollInput = .5f }; Advance(roll, .5f);
-            var yaw = new FlightModel { RudderInput = .5f }; Advance(yaw, .5f);
+            var roll = new FlightModel(controlLaw: ControlLaw.Direct) { RollInput = .5f }; Advance(roll, .5f);
+            var yaw = new FlightModel(controlLaw: ControlLaw.Direct) { RudderInput = .5f }; Advance(yaw, .5f);
             Check(roll.AngularVelocity.Z < -.1f, "roll direction");
             Check(yaw.AngularVelocity.Y > .02f, "yaw direction");
         });
         Test("No fuel means no thrust", () =>
         {
-            var f = new FlightModel { Fuel = 0, Throttle = 1, Afterburner = true }; Advance(f, 4);
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { Fuel = 0, Throttle = 1, Afterburner = true }; Advance(f, 4);
             Check(f.Thrust == 0 && f.Fuel == 0, "fuel starvation");
         });
         Test("Engine spool-up, afterburner and fuel consumption", () =>
         {
-            var dry = new FlightModel { Throttle = 1 };
-            var ab = new FlightModel { Throttle = 1, Afterburner = true };
+            var dry = new FlightModel(controlLaw: ControlLaw.Direct) { Throttle = 1 };
+            var ab = new FlightModel(controlLaw: ControlLaw.Direct) { Throttle = 1, Afterburner = true };
             Advance(dry, 4); Advance(ab, 4);
             Check(ab.Thrust > dry.Thrust * 1.4f, "afterburner thrust");
             Check(ab.Fuel < dry.Fuel && dry.Fuel < AircraftParameters.InitialFuel, "fuel consumption");
         });
         Test("Landing gear supports a stationary aircraft", () =>
         {
-            var f = new FlightModel(ground: true); Advance(f, 20);
+            var f = new FlightModel(ground: true, controlLaw: ControlLaw.Direct); Advance(f, 20);
             Check(!f.Crashed && f.OnGround, f.Failure);
             Check(f.Position.Y is > 2.2f and < 2.8f && f.Velocity.Length() < .1f && f.ParkingBrake,
                 $"ground equilibrium: y={f.Position.Y}, vy={f.Velocity.Y}");
         });
         Test("Full-power runway rotation produces takeoff", () =>
         {
-            var f = new FlightModel(ground: true) { Throttle = 1, Afterburner = true, ParkingBrake = false };
+            var f = new FlightModel(ground: true, controlLaw: ControlLaw.Direct) { Throttle = 1, Afterburner = true, ParkingBrake = false };
             for (int i = 0; i < (int)(40 / FlightModel.FixedStep); i++)
             {
                 // A test pilot rotates to ten degrees, rather than holding an arbitrary surface deflection forever.
@@ -128,12 +128,12 @@ public static class PhysicsTests
         });
         Test("Hard terrain impact ends flight", () =>
         {
-            var f = new FlightModel { Position = new(0, 8, 0), Velocity = new(0, -25, 0) };
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { Position = new(0, 8, 0), Velocity = new(0, -25, 0) };
             Advance(f, 1); Check(f.Crashed, "ground collision ignored");
         });
         Test("Unpowered glide loses mechanical energy", () =>
         {
-            var f = new FlightModel { Fuel = 0, Throttle = 0 };
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { Fuel = 0, Throttle = 0 };
             float initial = .5f * f.Velocity.LengthSquared() + Atmosphere.Gravity * f.Position.Y;
             Advance(f, 20);
             float final = .5f * f.Velocity.LengthSquared() + Atmosphere.Gravity * f.Position.Y;
@@ -141,7 +141,7 @@ public static class PhysicsTests
         });
         Test("A banked aircraft turns under the lateral lift component", () =>
         {
-            var f = new FlightModel();
+            var f = new FlightModel(controlLaw: ControlLaw.Direct);
             f.Orientation *= Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -.35f);
             Advance(f, 6);
             Check(!f.Crashed && f.Position.X > 20 && f.Heading > 1,
@@ -149,7 +149,7 @@ public static class PhysicsTests
         });
         Test("Quaternion stays normalized through a maneuver", () =>
         {
-            var f = new FlightModel { Position = new(0, 7000, 0), RollInput = .3f };
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { Position = new(0, 7000, 0), RollInput = .3f };
             Advance(f, 12);
             Check(!f.Crashed, f.Failure);
             Check(MathF.Abs(f.Orientation.LengthSquared() - 1) < 1e-5f, "orientation normalization");
@@ -157,10 +157,15 @@ public static class PhysicsTests
         });
         Test("Fixed-step numerical convergence", () =>
         {
-            var a = new FlightModel { ElevatorInput = .08f, RollInput = .04f };
-            var b = new FlightModel { ElevatorInput = .08f, RollInput = .04f };
-            Advance(a, 5); Advance(b, 5, 1f / 480);
-            Check(Vector3.Distance(a.Position, b.Position) < 3, $"position error {Vector3.Distance(a.Position, b.Position):0.00} m");
+            foreach (ControlLaw law in new[] { ControlLaw.Normal, ControlLaw.Direct })
+            {
+                var a = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f };
+                var b = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f };
+                Advance(a, 5); Advance(b, 5, 1f / 480);
+                float angleError = 2 * MathF.Acos(Math.Clamp(MathF.Abs(Quaternion.Dot(a.Orientation, b.Orientation)), 0, 1));
+                Check(Vector3.Distance(a.Position, b.Position) < 3 && angleError < .5f * MathF.PI / 180,
+                    $"{law}: position error {Vector3.Distance(a.Position, b.Position):0.00} m, attitude error {angleError * 180 / MathF.PI:0.00} deg");
+            }
         });
 
         Test("Control torque comes from forces at physical tail locations", () =>
@@ -236,7 +241,7 @@ public static class PhysicsTests
         });
         Test("One engine out produces asymmetric-thrust yaw", () =>
         {
-            var f = new FlightModel { LeftEngineEnabled = false }; Advance(f, .15f);
+            var f = new FlightModel(controlLaw: ControlLaw.Direct) { LeftEngineEnabled = false }; Advance(f, .15f);
             Check(!f.Crashed && f.LeftThrust == 0 && f.RightThrust > 1000 && f.AngularVelocity.Y < -.005f,
                 $"engine-out yaw {f.AngularVelocity.Y:0.000}, L={f.LeftThrust:0}, R={f.RightThrust:0}");
         });
@@ -249,8 +254,8 @@ public static class PhysicsTests
         });
         Test("Wheel brakes stop the aircraft; free wheels spin up", () =>
         {
-            var rolling = new FlightModel(ground: true) { ParkingBrake = false, LeftEngineEnabled = false, RightEngineEnabled = false };
-            var braking = new FlightModel(ground: true) { ParkingBrake = true, LeftEngineEnabled = false, RightEngineEnabled = false };
+            var rolling = new FlightModel(ground: true, controlLaw: ControlLaw.Direct) { ParkingBrake = false, LeftEngineEnabled = false, RightEngineEnabled = false };
+            var braking = new FlightModel(ground: true, controlLaw: ControlLaw.Direct) { ParkingBrake = true, LeftEngineEnabled = false, RightEngineEnabled = false };
             rolling.Velocity = braking.Velocity = new(0, 0, 30);
             Advance(rolling, 9); Advance(braking, 9);
             Check(!rolling.Crashed && !braking.Crashed, $"ground failures: {rolling.Failure} / {braking.Failure}");

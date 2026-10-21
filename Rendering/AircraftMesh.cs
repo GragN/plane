@@ -119,7 +119,7 @@ public sealed class AircraftMesh
             Vector3 pivot = new(side * 2.2f, .05f, -7.7f);
             for (int i = 0; i < stabilizer.Length; i++)
                 stabilizer[i] = World(pivot + Vector3.Transform(stabilizer[i] - pivot,
-                    Quaternion.CreateFromAxisAngle(Vector3.UnitX, f.Elevator * .36f)));
+                    Quaternion.CreateFromAxisAngle(Vector3.UnitX, (f.Elevator + side * f.DifferentialTail) * .36f)));
             DrawFace(stabilizer[0], stabilizer[1], stabilizer[2], Wing);
             DrawFace(stabilizer[0], stabilizer[2], stabilizer[3], Wing);
             DrawLine3D(stabilizer[0], stabilizer[1], Dark);

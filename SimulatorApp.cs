@@ -43,6 +43,11 @@ public sealed class SimulatorApp
                 if (IsKeyPressed(KeyboardKey.H)) help = !help;
                 if (IsKeyPressed(KeyboardKey.Tab)) vectors = !vectors;
                 if (IsKeyPressed(KeyboardKey.N)) flight.WindEnabled = !flight.WindEnabled;
+                if (IsKeyPressed(KeyboardKey.F4))
+                {
+                    flight.Controls.Law = flight.Controls.Law == ControlLaw.Normal ? ControlLaw.Direct : ControlLaw.Normal;
+                    Console.WriteLine($"CONTROL LAW: {flight.Controls.Law}");
+                }
                 if (IsKeyPressed(KeyboardKey.R)) { flight.Reset(true); view.Reset(); accumulator = 0; }
                 if (IsKeyPressed(KeyboardKey.T)) { flight.Reset(true); view.Reset(); accumulator = 0; }
                 if (!paused && !flight.Crashed)
@@ -106,9 +111,10 @@ public sealed class SimulatorApp
     {
         static float Axis(KeyboardKey positive, KeyboardKey negative) =>
             (IsKeyDown(positive) ? 1 : 0) - (IsKeyDown(negative) ? 1 : 0);
-        f.ElevatorInput = Axis(KeyboardKey.Down, KeyboardKey.Up);
-        f.RollInput = Axis(KeyboardKey.Right, KeyboardKey.Left);
-        f.RudderInput = Axis(KeyboardKey.D, KeyboardKey.A);
+        float precision = IsKeyDown(KeyboardKey.LeftControl) || IsKeyDown(KeyboardKey.RightControl) ? .25f : 1;
+        f.ElevatorInput = Axis(KeyboardKey.Down, KeyboardKey.Up) * precision;
+        f.RollInput = Axis(KeyboardKey.Right, KeyboardKey.Left) * precision;
+        f.RudderInput = Axis(KeyboardKey.D, KeyboardKey.A) * precision;
         f.Throttle += Axis(KeyboardKey.W, KeyboardKey.S) * dt * .22f;
         f.PitchTrim += Axis(KeyboardKey.E, KeyboardKey.Q) * dt * .035f;
         f.WheelBrake = IsKeyDown(KeyboardKey.Space);
@@ -121,7 +127,7 @@ public sealed class SimulatorApp
 
         if (IsGamepadAvailable(0))
         {
-            static float Deadzone(float v) => MathF.Abs(v) < .06f ? 0 : v;
+            static float Deadzone(float v) => MathF.Abs(v) < .02f ? 0 : MathF.CopySign((MathF.Abs(v) - .02f) / .98f, v);
             f.RollInput = Math.Clamp(f.RollInput + Deadzone(GetGamepadAxisMovement(0, GamepadAxis.LeftX)), -1, 1);
             f.ElevatorInput = Math.Clamp(f.ElevatorInput + Deadzone(GetGamepadAxisMovement(0, GamepadAxis.LeftY)), -1, 1);
             f.RudderInput = Math.Clamp(f.RudderInput + Deadzone(GetGamepadAxisMovement(0, GamepadAxis.RightX)), -1, 1);

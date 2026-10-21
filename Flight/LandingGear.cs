@@ -15,6 +15,44 @@ public sealed class LandingGear
     public void Reset() { Array.Clear(wheelSpeeds); Array.Clear(nextSpeeds); Array.Clear(compression); }
     public void Commit() => nextSpeeds.CopyTo(wheelSpeeds, 0);
 
+    public static (float Height, float Pitch) ParkedPose(MassProperties mass, float idleThrust)
+    {
+        // Solve static support before spawning; avoids dropping the airframe onto the struts.
+        Vector2 Residual(Vector2 pose)
+        {
+            Quaternion rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -pose.Y);
+            float normalSum = 0; Vector3 moment = Vector3.Zero;
+            Vector3 engineForce = Vector3.Transform(new Vector3(0, 0, idleThrust), rotation);
+            for (int i = 0; i < Mounts.Length; i++)
+            {
+                Vector3 arm = Mounts[i] - mass.Center;
+                Vector3 worldArm = Vector3.Transform(arm, rotation);
+                float d = Math.Max(0, -pose.X - worldArm.Y);
+                float normal = (i == 0 ? 260000 : 430000) * d * (1 + .7f * d);
+                Vector3 f = Vector3.UnitY * normal - Vector3.UnitZ * engineForce.Z * normal /
+                    (mass.Mass * Atmosphere.Gravity - engineForce.Y);
+                normalSum += normal;
+                moment += Vector3.Cross(arm, Vector3.Transform(f, Quaternion.Conjugate(rotation)));
+            }
+            moment += Vector3.Cross(new Vector3(0, -.43f, -5) - mass.Center, new Vector3(0, 0, idleThrust));
+            float weight = mass.Mass * Atmosphere.Gravity;
+            return new((normalSum + engineForce.Y - weight) / weight, moment.X / (weight * 5));
+        }
+        Vector2 state = new(2.75f + mass.Center.Y - .16f, 0);
+        for (int iteration = 0; iteration < 30; iteration++)
+        {
+            Vector2 r = Residual(state);
+            if (r.Length() < 1e-6f) return (state.X, state.Y);
+            const float delta = .0005f;
+            Vector2 x = (Residual(state + new Vector2(delta, 0)) - r) / delta;
+            Vector2 y = (Residual(state + new Vector2(0, delta)) - r) / delta;
+            float det = x.X * y.Y - y.X * x.Y;
+            if (MathF.Abs(det) < 1e-6f) break;
+            state -= new Vector2((r.X * y.Y - y.X * r.Y) / det, (x.X * r.Y - r.X * x.Y) / det) * .8f;
+        }
+        throw new InvalidOperationException("Landing gear static equilibrium did not converge");
+    }
+
     public ContactResult Evaluate(Vector3 position, Vector3 velocity, Quaternion orientation, Vector3 omega,
         MassProperties mass, float extension, float steering, bool brakes, float dt)
     {
