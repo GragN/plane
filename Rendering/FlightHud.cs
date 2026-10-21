@@ -16,7 +16,7 @@ public sealed class FlightHud
     private readonly Font font = GetFontDefault();
     private float scale = 1;
 
-    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors, float opacity = .8f)
+    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors, float opacity = WindowAppearance.DefaultOpacity)
     {
         int width = GetScreenWidth(), height = GetScreenHeight();
         scale = Math.Clamp(Math.Min(width / 1440f, height / 900f), .65f, 1.75f);

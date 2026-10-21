@@ -9,7 +9,7 @@ namespace Flanker;
 
 public sealed class SimulatorApp
 {
-    public int Run(bool smokeTest, float opacity = .8f)
+    public int Run(bool smokeTest, float opacity = WindowAppearance.DefaultOpacity)
     {
         CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         if (OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"))

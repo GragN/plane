@@ -6,6 +6,8 @@ namespace Flanker.Rendering;
 
 public sealed class WindowAppearance
 {
+    public const float DefaultOpacity = .1f;
+    public const float MinimumOpacity = .1f;
     public float Opacity { get; private set; }
     public WindowAppearance(float opacity)
     {
@@ -14,7 +16,7 @@ public sealed class WindowAppearance
     }
     private void Apply(float opacity)
     {
-        Opacity = Math.Clamp(opacity, .2f, 1);
+        Opacity = Math.Clamp(opacity, MinimumOpacity, 1);
         SetWindowOpacity(Opacity); // Whole native window, including the 3D scene and instruments.
     }
     public void Update()
@@ -25,10 +27,10 @@ public sealed class WindowAppearance
     public static float FromArguments(string[] args)
     {
         int index = Array.IndexOf(args, "--opacity");
-        if (index < 0) return .8f; // 20% transparency = 80% opacity.
+        if (index < 0) return DefaultOpacity; // 90% transparency = 10% opacity.
         if (index + 1 >= args.Length || !float.TryParse(args[index + 1], NumberStyles.Float,
-            CultureInfo.InvariantCulture, out float value) || !float.IsFinite(value) || value < .2f || value > 1)
-            throw new ArgumentException("--opacity requires a number from 0.2 to 1.0 (e.g. --opacity 0.8)");
+            CultureInfo.InvariantCulture, out float value) || !float.IsFinite(value) || value < MinimumOpacity || value > 1)
+            throw new ArgumentException("--opacity requires a number from 0.1 to 1.0 (e.g. --opacity 0.1)");
         return value;
     }
 }
