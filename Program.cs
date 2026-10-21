@@ -9,7 +9,7 @@ if (args.Contains("--help"))
     Console.WriteLine("Flanker | Su-27 research flight simulator");
     Console.WriteLine("dotnet run                  Start the simulator");
     Console.WriteLine("dotnet run -- --self-test    Run deterministic physics tests (no display)");
-    Console.WriteLine("dotnet run -- --smoke-test   Validate 420 frames: airborne, runway, cockpit; save artifacts/*.png");
+    Console.WriteLine("dotnet run -- --smoke-test   Validate 420 frames: runway start, airborne, cockpit; save artifacts/*.png");
     return 0;
 }
 

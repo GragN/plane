@@ -24,7 +24,7 @@ public sealed class SimulatorApp
         SetWindowMinSize(960, 640);
         SetTargetFPS(smokeTest ? 0 : 120);
         Rlgl.SetClipPlanes(.15, 60000);
-        var flight = new FlightModel();
+        var flight = new FlightModel(ground: true);
         var view = new FlightCamera();
         var world = new WorldRenderer();
         var hud = new FlightHud();
@@ -41,7 +41,7 @@ public sealed class SimulatorApp
                 if (IsKeyPressed(KeyboardKey.H)) help = !help;
                 if (IsKeyPressed(KeyboardKey.Tab)) vectors = !vectors;
                 if (IsKeyPressed(KeyboardKey.N)) flight.WindEnabled = !flight.WindEnabled;
-                if (IsKeyPressed(KeyboardKey.R)) { flight.Reset(false); view.Reset(); accumulator = 0; }
+                if (IsKeyPressed(KeyboardKey.R)) { flight.Reset(true); view.Reset(); accumulator = 0; }
                 if (IsKeyPressed(KeyboardKey.T)) { flight.Reset(true); view.Reset(); accumulator = 0; }
                 if (!paused && !flight.Crashed)
                 {
@@ -64,14 +64,16 @@ public sealed class SimulatorApp
                 if (smokeTest && frames is 180 or 300 or 420)
                 {
                     Directory.CreateDirectory("artifacts");
-                    string name = frames switch { 180 => "chase", 300 => "runway", _ => "cockpit" };
+                    string name = frames switch { 180 => "runway", 300 => "chase", _ => "cockpit" };
                     bool valid = !flight.Crashed && float.IsFinite(flight.Position.Y)
-                        && (frames != 300 || flight.OnGround) && SaveCapture($"artifacts/{name}.png");
+                        && (frames != 180 || (flight.OnGround && flight.GearExtension == 1
+                            && flight.Throttle == 0 && flight.Velocity.Length() < .1f))
+                        && SaveCapture($"artifacts/{name}.png");
                     Console.WriteLine($"RENDER SMOKE [{name}]: frame={frames}; t={flight.Time:0.00}s; altitude={flight.Position.Y:0.0}m; " +
                         $"speed={flight.Aero.Speed:0.0}m/s; {(valid ? "PASS" : "FAIL")}");
                     if (!valid) return 1;
                     if (frames == 420) return 0;
-                    flight.Reset(frames == 180);
+                    flight.Reset(false);
                     view.SetMode(frames == 300 ? 1 : 0);
                     accumulator = 0;
                 }

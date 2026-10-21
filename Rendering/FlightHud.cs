@@ -97,7 +97,7 @@ public sealed class FlightHud
             string label = f.Crashed ? "FLIGHT ENDED" : "SIMULATION PAUSED";
             Box(w / 2 - 208, h / 2 - 45, 416, 102);
             Text(label, w / 2 - Measure(label, 23) / 2, h / 2 - 23, 23, Ink);
-            string action = f.Crashed ? "R  AIR START     T  RUNWAY START" : "P  RESUME FLIGHT";
+            string action = f.Crashed ? "R / T  RESTART ON RUNWAY" : "P  RESUME FLIGHT";
             Text(action, w / 2 - Measure(action, 12) / 2, h / 2 + 20, 12, Secondary);
         }
         if (help) DrawHelp(w, h);
@@ -187,7 +187,7 @@ public sealed class FlightHud
             "MOUSE WHEEL        Camera distance",
             "N / TAB            Wind + gusts / force vectors",
             "P / H              Pause / close this panel",
-            "R / T              Reset airborne / on runway"
+            "R / T              Restart on runway"
         ];
         for (int i = 0; i < controls.Length; i++) Text(controls[i], x + 26, y + 96 + i * 23, 11, Ink);
         Text("TAKEOFF: full power + A/B, rotate gently near 260 km/h.", x + 26, y + 433, 11, Secondary);

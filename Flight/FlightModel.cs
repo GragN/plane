@@ -42,7 +42,7 @@ public sealed class FlightModel
     public float Pitch => MathF.Asin(Math.Clamp(Forward.Y, -1, 1));
     public float Bank => MathF.Atan2(-Right.Y, Up.Y);
 
-    public FlightModel() => Reset(false);
+    public FlightModel(bool ground = false) => Reset(ground);
 
     public void Reset(bool ground)
     {
