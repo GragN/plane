@@ -14,7 +14,7 @@ if (args.Contains("--help"))
     Console.WriteLine("dotnet run -- --self-test    Run deterministic physics tests (no display)");
     Console.WriteLine("dotnet run -- --flight-report Run handling/energy/recovery trials; export CSV and JSON");
     Console.WriteLine("dotnet run -- --smoke-test   Validate 420 frames: runway start, airborne, cockpit; save artifacts/*.png");
-    Console.WriteLine("dotnet run -- --opacity 0.1  Window opacity (0.1..1.0); default: 90% transparent");
+    Console.WriteLine("dotnet run -- --opacity 0.05 Window opacity (0.05..1.0); default: 95% transparent");
     return 0;
 }
 

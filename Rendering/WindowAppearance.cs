@@ -6,8 +6,8 @@ namespace Flanker.Rendering;
 
 public sealed class WindowAppearance
 {
-    public const float DefaultOpacity = .1f;
-    public const float MinimumOpacity = .1f;
+    public const float DefaultOpacity = .05f;
+    public const float MinimumOpacity = .05f;
     public float Opacity { get; private set; }
     public WindowAppearance(float opacity)
     {
@@ -27,10 +27,10 @@ public sealed class WindowAppearance
     public static float FromArguments(string[] args)
     {
         int index = Array.IndexOf(args, "--opacity");
-        if (index < 0) return DefaultOpacity; // 90% transparency = 10% opacity.
+        if (index < 0) return DefaultOpacity; // 95% transparency = 5% opacity.
         if (index + 1 >= args.Length || !float.TryParse(args[index + 1], NumberStyles.Float,
             CultureInfo.InvariantCulture, out float value) || !float.IsFinite(value) || value < MinimumOpacity || value > 1)
-            throw new ArgumentException("--opacity requires a number from 0.1 to 1.0 (e.g. --opacity 0.1)");
+            throw new ArgumentException("--opacity requires a number from 0.05 to 1.0 (e.g. --opacity 0.05)");
         return value;
     }
 }
