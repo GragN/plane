@@ -113,7 +113,7 @@ public sealed class SimulatorApp
             (IsKeyDown(positive) ? 1 : 0) - (IsKeyDown(negative) ? 1 : 0);
         float precision = IsKeyDown(KeyboardKey.LeftControl) || IsKeyDown(KeyboardKey.RightControl) ? .25f : 1;
         f.ElevatorInput = Axis(KeyboardKey.Down, KeyboardKey.Up) * precision;
-        f.RollInput = Axis(KeyboardKey.Right, KeyboardKey.Left) * precision;
+        f.RollInput = Axis(KeyboardKey.Left, KeyboardKey.Right) * precision;
         f.RudderInput = Axis(KeyboardKey.D, KeyboardKey.A) * precision;
         f.Throttle += Axis(KeyboardKey.W, KeyboardKey.S) * dt * .22f;
         f.PitchTrim += Axis(KeyboardKey.E, KeyboardKey.Q) * dt * .035f;

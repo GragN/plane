@@ -190,7 +190,7 @@ public sealed class FlightHud
         Text("NORMAL: G / RATE COMMAND  |  DIRECT: SURFACES", x + 26, y + 60, 11, Secondary);
         string[] controls = [
             "UP / DOWN          Push nose down / pull nose up",
-            "LEFT / RIGHT       Roll left / right",
+            "LEFT / RIGHT       Roll right / left (inverted)",
             "A / D              Rudder + nosewheel steering",
             "W / S              Increase / decrease throttle",
             "LEFT SHIFT         Toggle afterburner (full throttle)",
