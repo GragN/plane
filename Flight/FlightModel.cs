@@ -10,6 +10,7 @@ public sealed class FlightModel
     private readonly LandingGear gear = new();
     private readonly JetEngine leftEngine = new(), rightEngine = new();
     public FlightControls Controls { get; } = new();
+    public WindSettings Weather { get; set; } = WindSettings.Default;
     private float cachedFuel = float.NaN;
     private MassProperties cachedMass;
     public Vector3 Position { get; set; }
@@ -127,11 +128,12 @@ public sealed class FlightModel
     private AeroContext Context(Vector3 position, Vector3 velocity, Quaternion orientation, Vector3 omega, MassProperties mass)
     {
         Air air = Atmosphere.At(position.Y);
-        Vector3 relative = velocity - Atmosphere.WindAt(Time, position, WindEnabled);
+        Vector3 wind = Atmosphere.WindAt(Time, position, WindEnabled, Weather);
+        Vector3 relative = velocity - wind;
         return new(Vector3.Transform(relative, Quaternion.Conjugate(orientation)), omega, air,
             Elevator, Aileron, Rudder, GearExtension, Airbrake ? 1 : 0,
             position.Y - Terrain.Height(position.X, position.Z), mass.Center, orientation, position, WindEnabled, Time,
-            DifferentialTail);
+            DifferentialTail, Weather, wind);
     }
 
     private readonly record struct Dynamics(Vector3 Force, Vector3 Moment, AeroResult Aero, ContactResult Contact);

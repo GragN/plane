@@ -29,6 +29,12 @@ public sealed class FlightHud
         Text("01", 382, 38, 25, Ink);
         Text(f.ParkingBrake ? "PARK BRAKE / PRESS K TO RELEASE" :
             f.OnGround ? "AIRFIELD / RUNWAY 36" : "FREE FLIGHT / MOUNTAIN BASIN", 382, 72, 11, Secondary);
+        Vector3 wind = Atmosphere.WindAt(f.Time, f.Position, f.WindEnabled, f.Weather);
+        float windSpeed = MathF.Sqrt(wind.X * wind.X + wind.Z * wind.Z);
+        float windDirection = (MathF.Atan2(-wind.X, -wind.Z) * 180 / MathF.PI + 360) % 360;
+        string weather = windSpeed < .05f ? "WIND CALM" : $"WIND {windDirection:000}/{windSpeed * 3.6f:00} KM/H";
+        Text($"GS {MathF.Sqrt(f.Velocity.X * f.Velocity.X + f.Velocity.Z * f.Velocity.Z) * 3.6f:000} KM/H  {weather}",
+            382, 96, 10, Secondary);
 
         Box(w - 259, 24, 235, 86);
         Text(paused ? "PAUSED" : f.Crashed ? "FLIGHT ENDED" : "SIMULATION LIVE", w - 240, 39, 14,
@@ -97,7 +103,8 @@ public sealed class FlightHud
         Text("ARROWS  PITCH / ROLL     A D  RUDDER     W S  THROTTLE     V  CAMERA     H  CONTROLS", 41, h - 44, 11, Ink);
         Text($"{TimeSpan.FromSeconds(f.Time):mm\\:ss}  /  {(vectors ? "FORCES ON" : "SI UNITS")}", w - 196, h - 44, 11, Secondary);
 
-        string? warning = f.Crashed ? f.Failure : f.Aero.Separation > .15f ? "STALL / REDUCE ANGLE OF ATTACK" :
+        string? warning = f.Crashed ? f.Failure :
+            !f.OnGround && f.Aero.Speed > 25 && f.Aero.Separation > .15f ? "STALL / REDUCE ANGLE OF ATTACK" :
             f.LoadFactor > 8.5f ? "HIGH G / UNLOAD" :
             f.AltitudeAgl < 140 && f.Velocity.Y < -8 ? "TERRAIN / PULL UP" :
             !f.LeftEngineEnabled || !f.RightEngineEnabled ? "ENGINE OUT / APPLY RUDDER" : f.Fuel < 500 ? "LOW FUEL" : null;

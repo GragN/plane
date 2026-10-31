@@ -10,10 +10,19 @@ public sealed class LandingGear
 {
     public static readonly Vector3[] Mounts = [new(0, -2.75f, 5.2f), new(-2.4f, -2.75f, -1.7f), new(2.4f, -2.75f, -1.7f)];
     private readonly float[] wheelSpeeds = new float[3], nextSpeeds = new float[3], compression = new float[3];
+    private readonly float[] brakePressures = [1, 1, 1], nextPressures = new float[3];
     public IReadOnlyList<float> WheelSpeeds => wheelSpeeds;
     public IReadOnlyList<float> Compression => compression;
-    public void Reset() { Array.Clear(wheelSpeeds); Array.Clear(nextSpeeds); Array.Clear(compression); }
-    public void Commit() => nextSpeeds.CopyTo(wheelSpeeds, 0);
+    public IReadOnlyList<float> BrakePressures => brakePressures;
+    public void Reset()
+    {
+        Array.Clear(wheelSpeeds); Array.Clear(nextSpeeds); Array.Clear(compression);
+        Array.Fill(brakePressures, 1); Array.Fill(nextPressures, 1);
+    }
+    public void Commit()
+    {
+        nextSpeeds.CopyTo(wheelSpeeds, 0); nextPressures.CopyTo(brakePressures, 0);
+    }
 
     public static (float Height, float Pitch) ParkedPose(MassProperties mass, float idleThrust)
     {
@@ -68,7 +77,8 @@ public sealed class LandingGear
             Vector3 world = position + Vector3.Transform(arm, orientation);
             float penetration = Terrain.Height(world.X, world.Z) - world.Y;
             compression[i] = extension > .95f ? Math.Max(0, penetration) : 0;
-            nextSpeeds[i] = wheelSpeeds[i] / (1 + dt * (brakes ? 20 : .04f));
+            nextPressures[i] = brakes && !nose ? brakePressures[i] : 0;
+            nextSpeeds[i] = wheelSpeeds[i] / (1 + dt * (brakes && !nose ? 20 : .04f));
             if (extension <= .95f || penetration <= 0) continue;
             Vector3 v = velocity + Vector3.Transform(Vector3.Cross(omega, arm), orientation);
             Vector3 normal = Vector3.Normalize(new Vector3(
@@ -88,12 +98,24 @@ public sealed class LandingGear
             forward = Vector3.Normalize(forward - normal * Vector3.Dot(forward, normal));
             Vector3 side = Vector3.Cross(normal, forward);
             float longitudinal = Vector3.Dot(v, forward), lateral = Vector3.Dot(v, side);
+            float slip = (MathF.Abs(longitudinal) - MathF.Abs(wheelSpeeds[i] * radius))
+                / Math.Max(3, MathF.Abs(longitudinal));
             float grip = Terrain.OnRunway(world.X, world.Z) ? .82f : .43f;
             float limit = grip * normalForce;
-            float lateralForce = -limit * MathF.Tanh(7 * MathF.Atan2(lateral, Math.Max(2, MathF.Abs(longitudinal))));
+            // A skidding tire loses cornering authority. The combined force still
+            // stays inside the friction circle; braking cannot provide unlimited steering.
+            float cornering = 1 - .55f * AerodynamicTables.Smooth(.2f, .8f, MathF.Abs(slip));
+            float lateralForce = -limit * cornering * MathF.Tanh(7 * MathF.Atan2(lateral, Math.Max(2, MathF.Abs(longitudinal))));
             float longitudinalLimit = MathF.Sqrt(Math.Max(0, limit * limit - lateralForce * lateralForce));
             float speedReference = Math.Max(3, MathF.Abs(longitudinal));
-            float brakeTorque = brakes ? (nose ? 4500 : 14500) : 0;
+            // Main wheels only. Anti-skid releases pressure quickly and rebuilds it
+            // slowly when the wheel recovers. Below taxi speed it becomes a parking brake.
+            float pressureTarget = brakes && !nose ? 1 : 0;
+            if (MathF.Abs(longitudinal) > 5)
+                pressureTarget *= 1 - AerodynamicTables.Smooth(.10f, .20f, slip);
+            float pressureTau = pressureTarget < brakePressures[i] ? .025f : .22f;
+            nextPressures[i] = brakePressures[i] + (pressureTarget - brakePressures[i]) * (1 - MathF.Exp(-dt / pressureTau));
+            float brakeTorque = brakes && !nose ? 20000 * nextPressures[i] : 0;
             float rollingTorque = .013f * normalForce * radius;
             float Traction(float w) => longitudinalLimit * MathF.Tanh(9 * (w * radius - longitudinal) / speedReference);
             // Implicit wheel/tire solve avoids the low-speed instability of explicit slip integration.

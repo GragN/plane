@@ -10,7 +10,7 @@ public readonly record struct AeroContext(Vector3 Velocity, Vector3 Omega, Air A
     float Elevator = 0, float Roll = 0, float Rudder = 0, float Gear = 0, float Airbrake = 0,
     float GroundClearance = 1000, Vector3 CenterOfMass = default,
     Quaternion Orientation = default, Vector3 Position = default, bool WindEnabled = false, double Time = 0,
-    float DifferentialTail = 0);
+    float DifferentialTail = 0, WindSettings? Weather = null, Vector3? AmbientWind = null);
 
 public sealed class Aerodynamics
 {
@@ -25,7 +25,7 @@ public sealed class Aerodynamics
     private readonly FlowState[] states;
     private readonly SurfaceLoad[] loads;
     public IReadOnlyList<SurfaceLoad> Loads => loads;
-    private float wingCl;
+    private readonly ConvectedWake wake = new();
     private const float WingAspect = AircraftParameters.Span * AircraftParameters.Span / AircraftParameters.WingArea;
     private static readonly (float Z, float SideWeight, float NormalWeight)[] BodySections =
     [(-7.5f, 4.9f, 9.8f), (-3.8f, 6.4f, 16), (0, 6.8f, 12.8f), (4, 5.2f, 6.4f), (8.5f, 3, 3.2f)];
@@ -58,7 +58,7 @@ public sealed class Aerodynamics
                 parts.Add(new(new(side * 2.15f, 1.1f + .9f * i, -6.5f - .45f * i), Vector3.UnitY,
                     8.6f / 4, 2.8f - .6f * i, Kind.Fin, side, .34f, .38f));
         }
-        // Wings first, so the tail receives their downwash in the same evaluation.
+        // Wings first: their circulation feeds the convected wake before tail updates.
         panels = parts.OrderBy(p => p.Kind).ToArray();
         states = new FlowState[panels.Length];
         loads = new SurfaceLoad[panels.Length];
@@ -84,11 +84,18 @@ public sealed class Aerodynamics
 
     private void UpdateFlow(in AeroContext c, float dt, bool reset)
     {
-        float weightedCl = 0;
+        Vector2 downwash = Vector2.Zero, separation = Vector2.Zero;
+        bool wakeUpdated = false;
         for (int i = 0; i < panels.Length; i++)
         {
             Panel p = panels[i];
-            var (velocity, alpha, _) = Flow(c, p, wingCl);
+            if (p.Kind != Kind.Wing && !wakeUpdated)
+            {
+                if (reset) wake.Reset(downwash, separation);
+                else wake.Advance(dt, downwash, separation);
+                wakeUpdated = true;
+            }
+            var (velocity, alpha, _, _) = Flow(c, p);
             float speed = velocity.Length();
             float reynolds = c.Air.Density * speed * p.Chord / c.Air.DynamicViscosity;
             float reCorrection = Math.Clamp(MathF.Log10(Math.Max(1, reynolds) / 1e7f) * .012f, -.04f, .015f);
@@ -102,7 +109,9 @@ public sealed class Aerodynamics
             s.AlphaRate = reset ? 0 : Math.Clamp(MathF.IEEERemainder(alpha - previousAlpha, MathF.Tau) / dt, -12, 12);
             s.Separation = reset ? target : s.Separation + (target - s.Separation) * (1 - MathF.Exp(-dt / tau));
             float slope = p.Kind == Kind.Wing ? AircraftParameters.LiftSlope : p.Kind == Kind.Tail ? 3.35f : 2.7f;
-            float attached = Math.Clamp((p.Kind == Kind.Wing ? AircraftParameters.ZeroAlphaLift : 0) + slope * alpha, -1.9f, 1.9f)
+            float groundLift = p.Kind == Kind.Wing ? GroundLiftFactor(Height(c, p)) : 1;
+            float attached = Math.Clamp(((p.Kind == Kind.Wing ? AircraftParameters.ZeroAlphaLift : 0) + slope * alpha)
+                * groundLift, -1.9f, 1.9f)
                 * AerodynamicTables.LiftFactor(speed / c.Air.SoundSpeed);
             if (p.Kind == Kind.Wing) attached += .9f * MathF.Sin(alpha) * MathF.Abs(MathF.Sin(alpha)) * MathF.Cos(alpha);
             float cl = attached * (1 - s.Separation) + 1.05f * MathF.Sin(2 * alpha) * s.Separation;
@@ -110,27 +119,34 @@ public sealed class Aerodynamics
             s.Cl = reset ? cl : s.Cl + (cl - s.Cl) * (1 - MathF.Exp(-dt / circulationTau));
             if (p.Kind == Kind.Wing)
             {
-                weightedCl += s.Cl * p.Area / AircraftParameters.WingArea;
-                wingCl = weightedCl; // complete before any tail panel is processed
+                float areaWeight = p.Area / (AircraftParameters.WingArea / 2);
+                float wash = 1.1f * s.Cl * areaWeight / (MathF.PI * WingAspect) * GroundFactor(Height(c, p));
+                if (p.Side < 0) { downwash.X += wash; separation.X += s.Separation * areaWeight; }
+                else { downwash.Y += wash; separation.Y += s.Separation * areaWeight; }
             }
         }
     }
 
-    private static (Vector3 Velocity, float Alpha, float Beta) Flow(in AeroContext c, Panel p, float wingLift)
+    private (Vector3 Velocity, float Alpha, float Beta, float PressureFactor) Flow(in AeroContext c, Panel p)
     {
         Vector3 arm = p.Position - c.CenterOfMass;
         Vector3 v = c.Velocity + Vector3.Cross(c.Omega, arm);
         if (c.WindEnabled)
         {
-            Vector3 deltaWind = Atmosphere.WindAt(c.Time, c.Position, true) -
-                Atmosphere.WindAt(c.Time, c.Position + Vector3.Transform(arm, c.Orientation), true);
+            Vector3 deltaWind = (c.AmbientWind ?? Atmosphere.WindAt(c.Time, c.Position, true, c.Weather)) -
+                Atmosphere.WindAt(c.Time, c.Position + Vector3.Transform(arm, c.Orientation), true, c.Weather);
             v += Vector3.Transform(deltaWind, Quaternion.Conjugate(c.Orientation));
         }
-        if (p.Kind == Kind.Tail)
+        float pressureFactor = 1;
+        if (p.Kind == Kind.Tail && v.Z > 0)
         {
-            float ground = GroundFactor(c.GroundClearance);
-            float downwash = 1.1f * wingLift / (MathF.PI * WingAspect) * ground;
+            float travel = (.5f - p.Position.Z) / Math.Max(15, v.Z);
+            var arrival = wake.At(travel);
+            float across = Math.Clamp(.5f + p.Position.X / (AircraftParameters.Span * .65f), 0, 1);
+            float downwash = arrival.Downwash.X + (arrival.Downwash.Y - arrival.Downwash.X) * across;
             v.Y += MathF.Abs(v.Z) * downwash;
+            float separated = arrival.Separation.X + (arrival.Separation.Y - arrival.Separation.X) * across;
+            pressureFactor = 1 - .3f * separated;
         }
         float speed = v.Length();
         float beta = speed > .01f ? MathF.Asin(Math.Clamp(v.X / speed, -1, 1)) : 0;
@@ -138,7 +154,18 @@ public sealed class Aerodynamics
             MathF.Atan2(-Vector3.Dot(v, Vector3.Cross(Vector3.UnitZ, p.Span)), v.Z)
                 + p.Control * (p.Kind == Kind.Tail
                     ? Math.Clamp(c.Elevator + p.Side * c.DifferentialTail, -1, 1) : c.Roll);
-        return (v, MathF.IEEERemainder(alpha, MathF.Tau), beta);
+        return (v, MathF.IEEERemainder(alpha, MathF.Tau), beta, pressureFactor);
+    }
+
+    private static float Height(in AeroContext c, Panel p) => c.GroundClearance
+        + Vector3.Transform(p.Position - c.CenterOfMass, c.Orientation).Y;
+
+    public static float GroundLiftFactor(float height)
+    {
+        // Finite-wing induced-angle feedback, normalized to the specified free-air
+        // lift slope. Attached lift increases near the surface; separated lift is not boosted.
+        float feedback = AircraftParameters.LiftSlope / (MathF.PI * WingAspect * .8f);
+        return (1 + feedback) / (1 + feedback * GroundFactor(height));
     }
 
     public static float GroundFactor(float height)
@@ -154,11 +181,11 @@ public sealed class Aerodynamics
         for (int i = 0; i < panels.Length; i++)
         {
             Panel p = panels[i]; FlowState s = states[i];
-            var (v, alpha, beta) = Flow(c, p, wingCl);
+            var (v, alpha, beta, pressureFactor) = Flow(c, p);
             float speed = v.Length();
             if (speed < .05f) { loads[i] = new(p.Position, Vector3.Zero, alpha, s.Separation); continue; }
             float mach = speed / c.Air.SoundSpeed;
-            float qS = .5f * c.Air.Density * speed * speed * p.Area;
+            float qS = .5f * c.Air.Density * speed * speed * p.Area * pressureFactor;
             if (p.Kind == Kind.Wing)
             {
                 // Swept panels see different normal velocities during sideslip.
@@ -208,8 +235,8 @@ public sealed class Aerodynamics
             Vector3 arm = new Vector3(0, -.05f, section.Z) - c.CenterOfMass;
             Vector3 v = c.Velocity + Vector3.Cross(c.Omega, arm);
             if (c.WindEnabled)
-                v += Vector3.Transform(Atmosphere.WindAt(c.Time, c.Position, true)
-                    - Atmosphere.WindAt(c.Time, c.Position + Vector3.Transform(arm, c.Orientation), true),
+                v += Vector3.Transform((c.AmbientWind ?? Atmosphere.WindAt(c.Time, c.Position, true, c.Weather))
+                    - Atmosphere.WindAt(c.Time, c.Position + Vector3.Transform(arm, c.Orientation), true, c.Weather),
                     Quaternion.Conjugate(c.Orientation));
             Vector3 force = -.5f * c.Air.Density * new Vector3(
                 32 * section.SideWeight / 26.3f * v.X * MathF.Abs(v.X),

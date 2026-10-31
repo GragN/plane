@@ -158,13 +158,14 @@ public static class PhysicsTests
         Test("Fixed-step numerical convergence", () =>
         {
             foreach (ControlLaw law in new[] { ControlLaw.Normal, ControlLaw.Direct })
+            foreach (bool windy in new[] { false, true })
             {
-                var a = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f };
-                var b = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f };
+                var a = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f, WindEnabled = windy };
+                var b = new FlightModel(controlLaw: law) { ElevatorInput = .08f, RollInput = .04f, WindEnabled = windy };
                 Advance(a, 5); Advance(b, 5, 1f / 480);
                 float angleError = 2 * MathF.Acos(Math.Clamp(MathF.Abs(Quaternion.Dot(a.Orientation, b.Orientation)), 0, 1));
                 Check(Vector3.Distance(a.Position, b.Position) < 3 && angleError < .5f * MathF.PI / 180,
-                    $"{law}: position error {Vector3.Distance(a.Position, b.Position):0.00} m, attitude error {angleError * 180 / MathF.PI:0.00} deg");
+                    $"{law}, wind={windy}: position error {Vector3.Distance(a.Position, b.Position):0.00} m, attitude error {angleError * 180 / MathF.PI:0.00} deg");
             }
         });
 
@@ -231,6 +232,82 @@ public static class PhysicsTests
             var tail = model.Loads.Where(p => p.Position.Z < -6 && p.Position.Y < .5f).ToArray();
             Check(tail.Length == 6 && tail.Average(p => p.Alpha) < MathF.Atan2(20, 150) - .02f, "missing tail downwash");
         });
+        Test("Ground effect increases attached lift without boosting separated lift", () =>
+        {
+            var model = new Aerodynamics();
+            AeroContext Context(float alpha, float height) => new(
+                new(0, -MathF.Sin(alpha) * 90, MathF.Cos(alpha) * 90), Vector3.Zero,
+                Atmosphere.At(0), GroundClearance: height);
+            float far = model.EvaluateSteady(Context(.12f, 1000)).Lift;
+            float near = model.EvaluateSteady(Context(.12f, .8f)).Lift;
+            Check(near > far * 1.1f && near < far * 1.6f, $"ground lift ratio {near / far:0.000}");
+            float stalledFar = model.EvaluateSteady(Context(1, 1000)).Lift;
+            float stalledNear = model.EvaluateSteady(Context(1, .8f)).Lift;
+            Check(stalledNear < stalledFar * 1.05f, "ground proximity restores a fully stalled wing");
+        });
+        Test("A wing disturbance reaches the tail after its convection time", () =>
+        {
+            AeroContext Context(float alpha) => new(new(0, -MathF.Sin(alpha) * 100, MathF.Cos(alpha) * 100),
+                Vector3.Zero, Atmosphere.At(1000));
+            var model = new Aerodynamics();
+            var changed = Context(.3f);
+            model.ResetFlow(Context(.05f));
+            float TailAlpha()
+            {
+                model.Evaluate(changed);
+                return model.Loads.Where(p => p.Position.Z < -6 && p.Position.Y < .5f).Average(p => p.Alpha);
+            }
+            float initial = TailAlpha();
+            for (int i = 0; i < 5; i++) model.AdvanceFlow(changed, FlightModel.FixedStep);
+            Check(MathF.Abs(TailAlpha() - initial) < .0001f, "wake teleported from wing to tail");
+            for (int i = 0; i < 120; i++) model.AdvanceFlow(changed, FlightModel.FixedStep);
+            Check(TailAlpha() < initial - .02f, "convected downwash did not arrive");
+        });
+        Test("An asymmetric wing wake remains asymmetric at the tail", () =>
+        {
+            var model = new Aerodynamics();
+            AeroContext c = new(new(0, -35, 85), new(0, 0, .8f), Atmosphere.At(1000));
+            model.ResetFlow(c with { Omega = Vector3.Zero });
+            for (int i = 0; i < 120; i++) model.AdvanceFlow(c, FlightModel.FixedStep);
+            model.Evaluate(c with { Omega = Vector3.Zero });
+            var tail = model.Loads.Where(p => p.Position.Z < -6 && p.Position.Y < .5f);
+            float left = tail.Where(p => p.Position.X < 0).Average(p => p.Alpha);
+            float right = tail.Where(p => p.Position.X > 0).Average(p => p.Alpha);
+            Check(MathF.Abs(left - right) > .005f, $"tail wash left={left:0.000}, right={right:0.000}");
+        });
+        Test("Surface crosswind follows height above terrain, not sea level", () =>
+        {
+            var settings = new WindSettings(new(8, 0, 0), 0);
+            Vector3 reference = Atmosphere.WindAt(0, new(0, 10, 0), true, settings);
+            Vector3 low = Atmosphere.WindAt(0, new(0, 2, 0), true, settings);
+            float mountain = Terrain.Height(9000, 1000);
+            Vector3 elevated = Atmosphere.WindAt(0, new(9000, mountain + 10, 1000), true, settings);
+            Check(MathF.Abs(reference.X - 8) < .001f && low.X > 4 && low.X < reference.X,
+                $"reference={reference.X:0.0}, wing-height wind={low.X:0.0}");
+            Check(Vector3.Distance(elevated, reference) < .001f, "wind profile uses MSL instead of AGL");
+        });
+        Test("Turbulence is continuous and repeatable across time steps", () =>
+        {
+            Vector3 p = new(20, 80, -1000);
+            Vector3 a = Atmosphere.WindAt(10, p, true);
+            Check(a == Atmosphere.WindAt(10, p, true), "weather depends on random call order");
+            Check(Vector3.Distance(a, Atmosphere.WindAt(10 + 1.0 / 240, p, true)) < .05f,
+                "temporal gust discontinuity");
+            Check(Vector3.Distance(a, Atmosphere.WindAt(10, p + new Vector3(.001f), true)) < .005f,
+                "spatial gust discontinuity");
+            Check(Atmosphere.WindAt(10, p, false) == Vector3.Zero, "calm mode still has wind");
+        });
+        Test("A uniform moving air mass preserves air-relative flight dynamics", () =>
+        {
+            var calm = new FlightModel();
+            var windy = new FlightModel { WindEnabled = true, Weather = new(new(8, 0, -4), 0) };
+            Vector3 wind = Atmosphere.WindAt(0, windy.Position, true, windy.Weather);
+            windy.Velocity += wind;
+            Advance(calm, 1); Advance(windy, 1);
+            Check(MathF.Abs(calm.Aero.Speed - windy.Aero.Speed) < .02f, "groundspeed used as airspeed");
+            Check(Vector3.Distance(windy.Velocity - wind, calm.Velocity) < .05f, "wind creates fictitious acceleration");
+            Check(Vector3.Distance(windy.Position - wind, calm.Position) < .05f, "wind advection is incorrect");
+        });
         Test("Fuel changes CG and the full inertia tensor", () =>
         {
             var full = MassProperties.FromFuel(5000); var empty = MassProperties.FromFuel(0);
@@ -262,6 +339,35 @@ public static class PhysicsTests
             Check(rolling.Velocity.Z > 20 && MathF.Abs(braking.Velocity.Z) < 2,
                 $"brakes: free={rolling.Velocity.Z:0.00}, braked={braking.Velocity.Z:0.00}");
             Check(MathF.Abs(rolling.WheelSpeeds[1] * .4f - rolling.Velocity.Z) < 3, "free-wheel rolling speed mismatch");
+        });
+        Test("Main-wheel anti-skid retains rotation; the nose wheel is unbraked", () =>
+        {
+            var gear = new LandingGear();
+            var mass = MassProperties.FromFuel(5000);
+            var pose = LandingGear.ParkedPose(mass, 0);
+            var rotation = Quaternion.CreateFromAxisAngle(Vector3.UnitX, -pose.Pitch);
+            for (int i = 0; i < 480; i++)
+            {
+                var contact = gear.Evaluate(new(0, pose.Height, 0), new(0, 0, 50), rotation,
+                    Vector3.Zero, mass, 1, 0, true, FlightModel.FixedStep);
+                Check(contact.Force.Z <= 0, "brakes accelerate the airframe");
+                gear.Commit();
+            }
+            Check(MathF.Abs(gear.WheelSpeeds[0] * .3f - 50) < 2, "nose wheel is being braked");
+            Check(gear.WheelSpeeds[1] * .4f > 30 && gear.WheelSpeeds[1] * .4f < 50,
+                $"main-wheel speed {gear.WheelSpeeds[1] * .4f:0.0} m/s");
+        });
+        Test("A moderate touchdown settles on the struts without a state reset", () =>
+        {
+            var f = new FlightModel(ground: true);
+            float parkedHeight = f.Position.Y;
+            f.Position += Vector3.UnitY * .5f;
+            f.Velocity = new(0, -1.5f, 0);
+            f.LeftEngineEnabled = f.RightEngineEnabled = false;
+            Advance(f, 5);
+            Check(!f.Crashed && f.OnGround, f.Failure);
+            Check(MathF.Abs(f.Position.Y - parkedHeight) < .03f && MathF.Abs(f.Velocity.Y) < .1f,
+                $"touchdown failed to settle: height={f.Position.Y:0.000}, vy={f.Velocity.Y:0.00}");
         });
 
         Console.WriteLine($"\n{passed} passed, {failed} failed, {passed + failed} executed.");
