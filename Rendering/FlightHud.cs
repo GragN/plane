@@ -16,7 +16,7 @@ public sealed class FlightHud
     private readonly Font font = GetFontDefault();
     private float scale = 1;
 
-    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors, float opacity = WindowAppearance.DefaultOpacity)
+    public void Draw(FlightModel f, FlightCamera view, bool paused, bool help, bool vectors)
     {
         int width = GetScreenWidth(), height = GetScreenHeight();
         scale = Math.Clamp(Math.Min(width / 1440f, height / 900f), .65f, 1.75f);
@@ -40,7 +40,7 @@ public sealed class FlightHud
         Text(paused ? "PAUSED" : f.Crashed ? "FLIGHT ENDED" : "SIMULATION LIVE", w - 240, 39, 14,
             paused || f.Crashed ? Caution : Ink);
         Text($"{view.Name} / {f.Controls.Law.ToString().ToUpperInvariant()} / {(f.WindEnabled ? "WIND" : "CALM")}", w - 240, 67, 10, Secondary);
-        Text($"240 HZ  {GetFPS(),3} FPS  OPACITY {opacity * 100:0}%", w - 240, 87, 10, Secondary);
+        Text($"240 HZ  {GetFPS(),3} FPS", w - 240, 87, 10, Secondary);
 
         DrawHeading(f, w);
         if (view.Mode == 1) DrawAttitude(f, w, h);
@@ -211,8 +211,7 @@ public sealed class FlightHud
             "P / H              Pause / close this panel",
             "R / T              Restart on runway",
             "F1 / F2            Left / right engine cut + relight",
-            "F4 / CTRL          Normal / direct law; fine inputs",
-            "F8 / F9            Decrease / increase window opacity"
+            "F4 / CTRL          Normal / direct law; fine inputs"
         ];
         for (int i = 0; i < controls.Length; i++) Text(controls[i], x + 26, y + 90 + i * 20, 11, Ink);
         Text("TAKEOFF: release K, full power + A/B, rotate near 300 km/h.", x + 26, y + 433, 11, Secondary);
